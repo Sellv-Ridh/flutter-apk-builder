@@ -1,0 +1,98 @@
+name: Build Sync XxX APK
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract Project ZIP
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y unzip
+          unzip -o "aync.zip" -d extracted
+          echo "Isi ZIP berhasil diekstrak:"
+          ls -la extracted
+
+      - name: Set Project Directory
+        run: |
+          if [ -f extracted/android/gradlew ]; then
+            echo "PROJECT_DIR=extracted" >> "$GITHUB_ENV"
+          elif [ -f extracted/gradlew ]; then
+            echo "PROJECT_DIR=extracted" >> "$GITHUB_ENV"
+          else
+            echo "ERROR: Struktur proyek Android tidak ditemukan!"
+            find extracted -maxdepth 4 -name gradlew
+            exit 1
+          fi
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Pillow
+        run: pip install Pillow
+
+      - name: Generate App Icons
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: python3 generate_icons.py
+
+      - name: Setup Gradle Wrapper
+        run: |
+          if [ -f "$PROJECT_DIR/android/gradlew" ]; then
+            chmod +x "$PROJECT_DIR/android/gradlew"
+            if [ ! -f "$PROJECT_DIR/android/gradle/wrapper/gradle-wrapper.jar" ]; then
+              curl -fL -o "$PROJECT_DIR/android/gradle/wrapper/gradle-wrapper.jar" \
+                "https://github.com/gradle/gradle/raw/v8.4.0/gradle/wrapper/gradle-wrapper.jar"
+            fi
+          else
+            chmod +x "$PROJECT_DIR/gradlew"
+            if [ ! -f "$PROJECT_DIR/gradle/wrapper/gradle-wrapper.jar" ]; then
+              curl -fL -o "$PROJECT_DIR/gradle/wrapper/gradle-wrapper.jar" \
+                "https://github.com/gradle/gradle/raw/v8.4.0/gradle/wrapper/gradle-wrapper.jar"
+            fi
+          fi
+
+      - name: Build Release APK
+        run: |
+          if [ -f "$PROJECT_DIR/android/gradlew" ]; then
+            cd "$PROJECT_DIR/android"
+          else
+            cd "$PROJECT_DIR"
+          fi
+          ./gradlew assembleRelease --no-daemon
+
+      - name: Rename APK
+        run: |
+          mkdir -p output
+          APK=$(find "$PROJECT_DIR" -path "*/build/outputs/apk/release/*.apk" -type f | head -n 1)
+          if [ -z "$APK" ]; then
+            echo "ERROR: APK release tidak ditemukan!"
+            exit 1
+          fi
+          cp "$APK" output/SyncXxX.apk
+          ls -lh output/SyncXxX.apk
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CyberPro-APK
+          path: output/SyncXxX.apk
+          retention-days: 30
